@@ -1,0 +1,250 @@
+<!doctype html>
+<html class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone Operations AI Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="h-full bg-slate-900 text-white">
+
+<div class="max-w-4xl mx-auto p-6">
+
+    <h1 class="text-3xl font-bold text-center mb-6">
+        🚁 Drone Operations AI Agent
+    </h1>
+
+    <!-- ACTION BUTTONS -->
+    <div class="flex gap-4 justify-center mb-4">
+        <button onclick="loadPilots()" 
+            class="bg-emerald-600 hover:bg-emerald-500 px-4 py-2 rounded-lg">
+            View Available Pilots
+        </button>
+
+        <button onclick="assignMissionPrompt()" 
+            class="bg-sky-600 hover:bg-sky-500 px-4 py-2 rounded-lg">
+            Assign Mission
+        </button>
+    </div>
+
+    <!-- CHAT BOX -->
+    <div id="chat-box" 
+         class="h-96 overflow-y-auto bg-slate-800 rounded-xl p-4 space-y-4 border border-slate-700">
+
+        <div class="bg-slate-700 p-3 rounded-lg max-w-md">
+            Welcome 👋 I am your Drone Operations AI Agent.  
+            Ask me anything about pilots, missions, or assignments.
+        </div>
+
+    </div>
+
+    <!-- INPUT -->
+    <div class="flex gap-2 mt-4">
+        <input id="user-input"
+               type="text"
+               placeholder="Type your request..."
+               class="flex-1 px-4 py-2 rounded-lg bg-slate-700 border border-slate-600 focus:outline-none"
+               onkeypress="if(event.key === 'Enter') sendMessage()">
+
+        <button onclick="sendMessage()"
+                class="bg-sky-600 hover:bg-sky-500 px-6 py-2 rounded-lg">
+            Send
+        </button>
+    </div>
+
+</div>
+
+<script>
+
+function formatTime() {
+    return new Date().toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+async function sendMessage() {
+    const input = document.getElementById("user-input");
+    const message = input.value.trim();
+    if (!message) return;
+
+    const chatBox = document.getElementById("chat-box");
+
+    // USER MESSAGE
+    chatBox.innerHTML += `
+        <div class="text-right">
+            <div class="inline-block bg-sky-600 px-4 py-2 rounded-lg">
+                ${escapeHtml(message)}
+            </div>
+        </div>
+    `;
+
+    input.value = "";
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    try {
+        const response = await fetch("/chat?query=" + encodeURIComponent(message), {
+            method: "POST"
+        });
+
+        const data = await response.json();
+
+        let formattedResponse = "";
+
+        // ===== SMART RENDERING =====
+        if (data.response) {
+            formattedResponse = data.response;
+        }
+        else if (data.mission) {
+
+            formattedResponse = `
+Mission: ${data.mission}
+
+Eligible Pilots:
+${data.eligible_pilots.length === 0
+    ? "None available"
+    : data.eligible_pilots.map(p =>
+        `• ${p.name} (₹${p.estimated_cost})`
+      ).join("\n")}
+
+Eligible Drones:
+${data.eligible_drones.length === 0
+    ? "None"
+    : data.eligible_drones.join(", ")}
+
+Pilot Warnings:
+${data.pilot_warnings.length === 0
+    ? "None"
+    : data.pilot_warnings.join("\n")}
+
+Drone Warnings:
+${data.drone_warnings.length === 0
+    ? "None"
+    : data.drone_warnings.join("\n")}
+`;
+        }
+        else if (Array.isArray(data)) {
+            formattedResponse = data.map(item =>
+                Object.entries(item)
+                    .map(([k, v]) => `${k}: ${v}`)
+                    .join(" | ")
+            ).join("\n\n");
+        }
+        else {
+            formattedResponse = JSON.stringify(data, null, 2);
+        }
+
+        // BOT MESSAGE
+        chatBox.innerHTML += `
+            <div>
+                <div class="inline-block bg-slate-700 px-4 py-2 rounded-lg whitespace-pre-wrap">
+${escapeHtml(formattedResponse)}
+                </div>
+            </div>
+        `;
+
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+    } catch (error) {
+        chatBox.innerHTML += `
+            <div>
+                <div class="inline-block bg-red-700 px-4 py-2 rounded-lg">
+                    ⚠️ Unable to reach server.
+                </div>
+            </div>
+        `;
+    }
+}
+
+
+// ===============================
+// VIEW PILOTS
+// ===============================
+
+async function loadPilots() {
+    const chatBox = document.getElementById("chat-box");
+
+    const response = await fetch("/pilots");
+    const data = await response.json();
+
+    let formatted = data.map(p =>
+        `• ${p.name} | Location: ${p.location} | Status: ${p.status}`
+    ).join("\n");
+
+    chatBox.innerHTML += `
+        <div>
+            <div class="inline-block bg-slate-700 px-4 py-2 rounded-lg whitespace-pre-wrap">
+Available Pilots:
+
+${formatted}
+            </div>
+        </div>
+    `;
+
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+
+// ===============================
+// ASSIGN MISSION
+// ===============================
+
+function assignMissionPrompt() {
+    const missionId = prompt("Enter Mission ID (e.g., PRJ001)");
+    if (!missionId) return;
+    assignMission(missionId);
+}
+
+async function assignMission(missionId) {
+    const chatBox = document.getElementById("chat-box");
+
+    const response = await fetch(`/assign/${missionId}`, {
+        method: "POST"
+    });
+
+    const data = await response.json();
+
+    let formatted = `
+Mission: ${data.mission}
+
+Eligible Pilots:
+${data.eligible_pilots.length === 0
+    ? "None available"
+    : data.eligible_pilots.map(p =>
+        `• ${p.name} (₹${p.estimated_cost})`
+      ).join("\n")}
+
+Eligible Drones:
+${data.eligible_drones.join(", ")}
+
+Warnings:
+${[...data.pilot_warnings, ...data.drone_warnings].join("\n") || "None"}
+`;
+
+    chatBox.innerHTML += `
+        <div>
+            <div class="inline-block bg-slate-700 px-4 py-2 rounded-lg whitespace-pre-wrap">
+${formatted}
+            </div>
+        </div>
+    `;
+
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+
+// ===============================
+// ESCAPE HTML
+// ===============================
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+</script>
+
+</body>
+</html>
